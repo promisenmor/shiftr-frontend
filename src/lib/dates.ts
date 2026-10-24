@@ -1,5 +1,77 @@
 export const UK_TIME_ZONE = "Europe/London";
 
+const londonDateTime = new Intl.DateTimeFormat("en-CA", {
+  timeZone: UK_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+export function londonDateTimeParts(value: Date): Record<string, string> {
+  return Object.fromEntries(
+    londonDateTime.formatToParts(value)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+}
+
+export function londonDateKey(value: Date): string {
+  const parts = londonDateTimeParts(value);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function londonTime(value: Date): string {
+  const parts = londonDateTimeParts(value);
+  return `${parts.hour}:${parts.minute}`;
+}
+
+export function londonDateTimeCandidates(date: string, time: string): string[] {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(`${date}T${time}`);
+  if (!match) return [];
+  const [, year, month, day, hour, minute] = match;
+  const wallClockAsUtc = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+  );
+  const offsets = new Set<number>();
+
+  for (let deltaHours = -36; deltaHours <= 36; deltaHours += 6) {
+    const probe = new Date(wallClockAsUtc + deltaHours * 60 * 60 * 1000);
+    const name = new Intl.DateTimeFormat("en-GB", {
+      timeZone: UK_TIME_ZONE,
+      timeZoneName: "longOffset",
+    }).formatToParts(probe).find((part) => part.type === "timeZoneName")?.value;
+    if (name === "GMT") {
+      offsets.add(0);
+    } else {
+      const offset = /^GMT([+-])(\d{2}):(\d{2})$/.exec(name ?? "");
+      if (offset) {
+        const minutes = Number(offset[2]) * 60 + Number(offset[3]);
+        offsets.add(offset[1] === "+" ? minutes : -minutes);
+      }
+    }
+  }
+
+  return [...offsets]
+    .map((offset) => new Date(wallClockAsUtc - offset * 60_000))
+    .filter((candidate) => {
+      const parts = londonDateTimeParts(candidate);
+      return parts.year === year
+        && parts.month === month
+        && parts.day === day
+        && parts.hour === hour
+        && parts.minute === minute;
+    })
+    .sort((first, second) => first.getTime() - second.getTime())
+    .map((candidate) => candidate.toISOString());
+}
+
 export function todayInUK(): string {
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: UK_TIME_ZONE,

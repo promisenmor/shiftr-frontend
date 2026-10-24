@@ -1,19 +1,22 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { useAuth } from "@/components/auth/auth-provider";
+import { logout } from "@/lib/api";
 
 type AppShellProps = {
   children: React.ReactNode;
-  active: "dashboard" | "log-shift";
+  active: "dashboard" | "log-shift" | "calendar" | "history" | "profile";
 };
 
 const primaryLinks = [
   { href: "/dashboard", label: "Dashboard", icon: "⌂", key: "dashboard" },
   { href: "/log-shift", label: "Log Shift", icon: "⊕", key: "log-shift" },
-];
-
-const plannedLinks = [
-  { label: "Calendar", icon: "▦" },
-  { label: "History", icon: "◷" },
-  { label: "Profile", icon: "◎" },
+  { href: "/calendar", label: "Calendar", icon: "▦", key: "calendar" },
+  { href: "/history", label: "History", icon: "◷", key: "history" },
+  { href: "/profile", label: "Profile", icon: "◎", key: "profile" },
 ];
 
 function Brand() {
@@ -40,12 +43,35 @@ function NavigationItem({ href, label, icon, active = false }: {
 }
 
 export function AppShell({ children, active }: AppShellProps) {
+  const router = useRouter();
+  const { user, loading, setUser } = useAuth();
+
+  useEffect(() => {
+    if (!loading && !user) router.replace("/login");
+  }, [loading, router, user]);
+
+  async function handleLogout() {
+    try {
+      await logout();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to confirm sign out.";
+      router.replace(`/login?notice=${encodeURIComponent(message)}`);
+    } finally {
+      setUser(null);
+      if (window.location.pathname !== "/login") router.replace("/login");
+    }
+  }
+
+  if (loading || !user) {
+    return <main className="auth-loading" aria-live="polite">Loading your Shiftr account…</main>;
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <Brand />
         <nav className="nav-list" aria-label="Main navigation">
-          {primaryLinks.map((link) => (
+          {primaryLinks.slice(0, 2).map((link) => (
             <NavigationItem
               key={link.key}
               href={link.href}
@@ -54,11 +80,14 @@ export function AppShell({ children, active }: AppShellProps) {
               active={active === link.key}
             />
           ))}
-          {plannedLinks.map((link) => (
-            <span className="nav-link" key={link.label} aria-disabled="true" title="Coming soon">
-              <span className="nav-icon" aria-hidden="true">{link.icon}</span>
-              {link.label}
-            </span>
+          {primaryLinks.slice(2).map((link) => (
+            <NavigationItem
+              key={link.key}
+              href={link.href}
+              label={link.label}
+              icon={link.icon}
+              active={active === link.key}
+            />
           ))}
         </nav>
         <div className="sidebar-bottom">
@@ -66,10 +95,10 @@ export function AppShell({ children, active }: AppShellProps) {
             <span className="nav-icon" aria-hidden="true">⚙</span>
             Settings
           </span>
-          <span className="nav-link" aria-disabled="true" title="Sign-in will be available soon">
+          <button className="nav-link nav-button" type="button" onClick={handleLogout}>
             <span className="nav-icon" aria-hidden="true">↪</span>
             Log out
-          </span>
+          </button>
         </div>
       </aside>
       <main className="main-content">{children}</main>
@@ -84,10 +113,6 @@ export function AppShell({ children, active }: AppShellProps) {
             {link.label}
           </Link>
         ))}
-        <Link href="/dashboard" aria-label="More navigation">
-          <span className="nav-icon" aria-hidden="true">☰</span>
-          More
-        </Link>
       </nav>
     </div>
   );
