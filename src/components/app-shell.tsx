@@ -8,18 +8,15 @@ import { logout } from "@/lib/api";
 
 type AppShellProps = {
   children: React.ReactNode;
-  active: "dashboard" | "log-shift";
+  active: "dashboard" | "log-shift" | "calendar" | "history" | "profile";
 };
 
 const primaryLinks = [
   { href: "/dashboard", label: "Dashboard", icon: "⌂", key: "dashboard" },
   { href: "/log-shift", label: "Log Shift", icon: "⊕", key: "log-shift" },
-];
-
-const plannedLinks = [
-  { label: "Calendar", icon: "▦" },
-  { label: "History", icon: "◷" },
-  { label: "Profile", icon: "◎" },
+  { href: "/calendar", label: "Calendar", icon: "▦", key: "calendar" },
+  { href: "/history", label: "History", icon: "◷", key: "history" },
+  { href: "/profile", label: "Profile", icon: "◎", key: "profile" },
 ];
 
 function Brand() {
@@ -74,7 +71,7 @@ export function AppShell({ children, active }: AppShellProps) {
       <aside className="sidebar">
         <Brand />
         <nav className="nav-list" aria-label="Main navigation">
-          {primaryLinks.map((link) => (
+          {primaryLinks.slice(0, 2).map((link) => (
             <NavigationItem
               key={link.key}
               href={link.href}
@@ -83,11 +80,14 @@ export function AppShell({ children, active }: AppShellProps) {
               active={active === link.key}
             />
           ))}
-          {plannedLinks.map((link) => (
-            <span className="nav-link" key={link.label} aria-disabled="true" title="Coming soon">
-              <span className="nav-icon" aria-hidden="true">{link.icon}</span>
-              {link.label}
-            </span>
+          {primaryLinks.slice(2).map((link) => (
+            <NavigationItem
+              key={link.key}
+              href={link.href}
+              label={link.label}
+              icon={link.icon}
+              active={active === link.key}
+            />
           ))}
         </nav>
         <div className="sidebar-bottom">
@@ -113,10 +113,6 @@ export function AppShell({ children, active }: AppShellProps) {
             {link.label}
           </Link>
         ))}
-        <Link href="/dashboard" aria-label="More navigation">
-          <span className="nav-icon" aria-hidden="true">☰</span>
-          More
-        </Link>
       </nav>
     </div>
   );

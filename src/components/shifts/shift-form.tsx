@@ -265,14 +265,15 @@ export function ShiftForm({ initialDate }: { initialDate?: string }) {
               <option value={60}>1 hour</option>
             </select>
             {breakMinutes > 0 && (
-              <label className="checkbox-field">
+              <div className="paid-break-option">
                 <input
+                  id="paid-break"
                   type="checkbox"
                   checked={paidBreak}
                   onChange={(event) => setPaidBreak(event.target.checked)}
                 />
-                Paid break
-              </label>
+                <label htmlFor="paid-break">Paid break</label>
+              </div>
             )}
           </div>
           {breakMinutes > 0 && mode === "start-end" && (

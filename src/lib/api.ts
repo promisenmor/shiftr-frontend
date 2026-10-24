@@ -66,7 +66,8 @@ export class ApiError extends Error {
 }
 
 function apiUrl(path: string): string {
-  return `/backend-api${path.replace(/\/+$/, "")}`;
+  const [pathname, query] = path.split("?", 2);
+  return `/backend-api${pathname.replace(/\/+$/, "")}${query ? `?${query}` : ""}`;
 }
 
 async function readError(response: Response): Promise<string> {
@@ -203,10 +204,22 @@ export function getProfile() {
   return request<User>("/profile/");
 }
 
+export function getShifts(startDate?: string, endDate?: string, signal?: AbortSignal) {
+  const query = new URLSearchParams();
+  if (startDate) query.set("start_date", startDate);
+  if (endDate) query.set("end_date", endDate);
+  const queryString = query.size ? `?${query}` : "";
+  return request<Shift[]>(`/shifts/${queryString}`, { signal });
+}
+
 export function updateProfile(displayName: string) {
   return request<User>("/profile/", {
     method: "PATCH",
     body: JSON.stringify({ display_name: displayName }),
+  }).then((updated) => {
+    const session = getSession();
+    if (session) setSession({ ...session, user: updated });
+    return updated;
   });
 }
 
