@@ -1,4 +1,29 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Shiftr frontend
+
+The Shiftr frontend is built with Next.js App Router. The dashboard requests
+weekly totals from the backend; it does not derive them from the shifts shown
+in the week list.
+
+## Backend API contract
+
+Set `NEXT_PUBLIC_API_URL` to the backend origin when it is hosted separately.
+The frontend expects these endpoints:
+
+- `GET /api/weekly-summary?weekStart=YYYY-MM-DD&timeZone=Europe%2FLondon`
+  returns `weekStart`, `targetMinutes`, `workedMinutes`, `remainingMinutes`,
+  `overtimeMinutes`, and a `shifts` array. Each shift has an `id`, `date`
+  (`YYYY-MM-DD`), nullable `startTime` and `endTime`, and `netMinutes`.
+- `POST /api/shifts` accepts either a `mode: "start-end"` payload with
+  `startDate`, `startTime`, `endDate`, and `endTime`, or a `mode: "duration"`
+  payload with a date and gross duration in minutes. Both include
+  `timeZone: "Europe/London"` and break records with `durationMinutes` and
+  `paid`, and may include a local `startAt` when break timing matters. The
+  response returns the saved shift.
+
+The backend remains responsible for validation, time-zone-aware duration and
+weekly allocation, transactions, and the selected week's summary calculation.
+If an endpoint is unavailable, the UI surfaces the request error instead of
+substituting client-side totals.
 
 ## Getting Started
 
