@@ -1,29 +1,45 @@
 # Shiftr frontend
 
-The Shiftr frontend is built with Next.js App Router. The dashboard requests
-weekly totals from the backend; it does not derive them from the shifts shown
-in the week list.
+The Shiftr frontend is built with Next.js App Router and connects to the Django
+backend in the sibling `shiftr-backend` project. The dashboard requests weekly
+totals from the backend; it does not derive them from the shifts shown in the
+week list.
 
-## Backend API contract
+## Run the application
 
-Set `NEXT_PUBLIC_API_URL` to the backend origin when it is hosted separately.
-The frontend expects these endpoints:
+Start the backend first using the [backend setup guide](../shiftr-backend/README.md).
+Configure the frontend API proxy by copying `.env.example` to `.env.local` and
+setting `SHIFTR_API_URL` to the backend origin (the local default is
+`http://127.0.0.1:8000`). The Next.js proxy forwards `/backend-api/*` to the
+backend `/api/*` routes, so browser requests stay same-origin.
 
-- `GET /api/weekly-summary?weekStart=YYYY-MM-DD&timeZone=Europe%2FLondon`
-  returns `weekStart`, `targetMinutes`, `workedMinutes`, `remainingMinutes`,
-  `overtimeMinutes`, and a `shifts` array. Each shift has an `id`, `date`
-  (`YYYY-MM-DD`), nullable `startTime` and `endTime`, and `netMinutes`.
-- `POST /api/shifts` accepts either a `mode: "start-end"` payload with
-  `startDate`, `startTime`, `endDate`, and `endTime`, or a `mode: "duration"`
-  payload with a date and gross duration in minutes. Both include
-  `timeZone: "Europe/London"` and break records with `durationMinutes` and
-  `paid`, and may include a local `startAt` when break timing matters. The
-  response returns the saved shift.
+Then run the frontend:
 
-The backend remains responsible for validation, time-zone-aware duration and
-weekly allocation, transactions, and the selected week's summary calculation.
-If an endpoint is unavailable, the UI surfaces the request error instead of
-substituting client-side totals.
+```powershell
+npm run dev
+```
+
+Create an account at `/register`, then log in at `/login`. Authentication uses
+the backend's short-lived JWT access token and rotating refresh token. Tokens
+are held in tab-scoped session storage and are not persisted across browser
+sessions.
+
+## Backend integration
+
+The frontend uses the backend API documented at `/api/docs/`:
+
+- `POST /api/auth/register/`, `/api/auth/login/`, `/api/auth/refresh/`, and
+  `/api/auth/logout/`
+- `GET /api/profile/`
+- `GET, POST /api/shifts/`
+- `PUT /api/weekly-targets/{week_start}/`
+- `GET /api/weeks/{week_start}/summary/`
+
+The shift form sends timed shifts as offset-aware instants in the
+`Europe/London` time zone and duration shifts as minutes. Break records use the
+backend's `duration_minutes`, `is_paid`, `start_at`, and `end_at` fields. The
+backend owns validation, DST handling, weekly allocation, and summary
+calculation.
 
 ## Getting Started
 

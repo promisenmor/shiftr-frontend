@@ -2,22 +2,26 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { getWeeklySummary } from "@/lib/api";
+import { getWeeklySummary, setWeeklyTarget } from "@/lib/api";
 import {
   addDays,
   currentWeekStart,
   formatDate,
   formatWeekRange,
+  londonDateKey,
+  londonTime,
 } from "@/lib/dates";
+import { useAuth } from "@/components/auth/auth-provider";
 import { ValidationFeedback } from "@/components/forms/validation-feedback";
 import { DurationDisplay } from "@/components/ui/duration-display";
-import type { WeeklySummary } from "@/types";
+import type { Shift, WeeklySummary } from "@/types";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "An unexpected error occurred.";
 }
 
 export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: string }) {
+  const { user } = useAuth();
   const [weekStart, setWeekStart] = useState(
     () => initialWeekStart ?? currentWeekStart(),
   );
@@ -25,6 +29,11 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetHours, setTargetHours] = useState("19");
+  const [targetMinutes, setTargetMinutes] = useState("0");
+  const [savingTarget, setSavingTarget] = useState(false);
+  const [targetError, setTargetError] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -50,16 +59,22 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
     [weekStart],
   );
   const shiftsByDate = useMemo(() => {
-    const grouped = new Map<string, WeeklySummary["shifts"]>();
+    const grouped = new Map<string, { shift: Shift; minutes: number }[]>();
     for (const shift of summary?.shifts ?? []) {
-      grouped.set(shift.date, [...(grouped.get(shift.date) ?? []), shift]);
+      const allocation = shift.weekly_allocations.find((item) => item.week_start === weekStart);
+      if (!allocation) continue;
+      const shiftDate = shift.entry_mode === "timed" && shift.start_at
+        ? londonDateKey(new Date(shift.start_at))
+        : shift.shift_date ?? weekStart;
+      const date = shiftDate < weekStart || shiftDate > addDays(weekStart, 6)
+        ? weekStart
+        : shiftDate;
+      grouped.set(date, [...(grouped.get(date) ?? []), { shift, minutes: allocation.minutes }]);
     }
     return grouped;
-  }, [summary]);
+  }, [summary, weekStart]);
 
-  const progress = summary && summary.targetMinutes > 0
-    ? Math.min((summary.workedMinutes / summary.targetMinutes) * 100, 100)
-    : 0;
+  const progress = summary?.progress_percent ?? 0;
   const todayWeekStart = currentWeekStart();
   const selectWeek = (nextWeekStart: string) => {
     setLoading(true);
@@ -68,16 +83,39 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
     setWeekStart(nextWeekStart);
   };
 
+  async function saveTarget(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const minutes = Number(targetHours) * 60 + Number(targetMinutes);
+    if (!Number.isSafeInteger(minutes) || minutes < 0) {
+      setTargetError("Enter a valid weekly target.");
+      return;
+    }
+    setSavingTarget(true);
+    setTargetError(null);
+    try {
+      await setWeeklyTarget(weekStart, minutes);
+      setEditingTarget(false);
+      setLoading(true);
+      setRetry((current) => current + 1);
+    } catch (caught) {
+      setTargetError(getErrorMessage(caught));
+    } finally {
+      setSavingTarget(false);
+    }
+  }
+
   return (
     <>
       <header className="page-heading">
         <div>
-          <h1>Good morning, Alex 👋</h1>
+          <h1>Good morning, {user?.display_name || user?.email.split("@")[0] || "there"} 👋</h1>
           <p>Here&apos;s your shift overview for this week.</p>
         </div>
         <div className="user-chip">
-          <span className="avatar" aria-hidden="true">AJ</span>
-          <span>Alex Johnson</span>
+          <span className="avatar" aria-hidden="true">
+            {(user?.display_name || user?.email || "S").slice(0, 1).toUpperCase()}
+          </span>
+          <span>{user?.display_name || user?.email}</span>
           <span aria-hidden="true">⌄</span>
         </div>
       </header>
@@ -87,23 +125,81 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
           className="target"
           icon="◎"
           label="Weekly target"
-          value={summary ? <DurationDisplay minutes={summary.targetMinutes} /> : "—"}
+          value={summary?.target_minutes === null || !summary
+            ? "Not set"
+            : <DurationDisplay minutes={summary.target_minutes} />}
         />
         <SummaryCard
           className="worked"
           icon="✓"
           label="Hours worked"
-          value={summary ? <DurationDisplay minutes={summary.workedMinutes} /> : "—"}
+          value={summary ? <DurationDisplay minutes={summary.worked_minutes} /> : "—"}
         />
         <SummaryCard
           className="remaining"
           icon="◷"
-          label={summary?.overtimeMinutes ? "Overtime" : "Remaining"}
+          label={summary?.overtime_minutes ? "Overtime" : "Remaining"}
           value={summary
-            ? <DurationDisplay minutes={summary.overtimeMinutes || summary.remainingMinutes} />
+            ? <DurationDisplay minutes={summary.overtime_minutes || summary.remaining_minutes} />
             : "—"}
         />
       </section>
+
+      {summary && (
+        <div className="target-actions">
+          {!editingTarget ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => {
+                const target = summary.target_minutes ?? summary.suggested_target_minutes ?? 1140;
+                setTargetHours(String(Math.floor(target / 60)));
+                setTargetMinutes(String(target % 60));
+                setEditingTarget(true);
+                setTargetError(null);
+              }}
+            >
+              {summary.target_is_set ? "Edit target" : "Set weekly target"}
+            </button>
+          ) : (
+            <form className="target-form" onSubmit={saveTarget}>
+              <label htmlFor="target-hours">Weekly target</label>
+              <input
+                id="target-hours"
+                type="number"
+                min="0"
+                max="168"
+                required
+                value={targetHours}
+                onChange={(event) => setTargetHours(event.target.value)}
+              />
+              <span>hours</span>
+              <select
+                aria-label="Target minutes"
+                value={targetMinutes}
+                onChange={(event) => setTargetMinutes(event.target.value)}
+              >
+                <option value="0">00</option>
+                <option value="15">15</option>
+                <option value="30">30</option>
+                <option value="45">45</option>
+              </select>
+              <span>minutes</span>
+              <button className="primary-button" type="submit" disabled={savingTarget}>
+                {savingTarget ? "Saving…" : "Save target"}
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setEditingTarget(false)}
+              >
+                Cancel
+              </button>
+              {targetError && <ValidationFeedback type="error" message={targetError} />}
+            </form>
+          )}
+        </div>
+      )}
 
       <section className="progress-card" aria-label="Weekly target progress">
         <div
@@ -120,9 +216,11 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
           <strong>{summary ? `${progress.toFixed(1)}% complete` : "Weekly progress"}</strong>
           <span>
             {summary
-              ? summary.overtimeMinutes
-                ? <><DurationDisplay minutes={summary.overtimeMinutes} /> overtime</>
-                : <><DurationDisplay minutes={summary.remainingMinutes} /> remaining</>
+                ? summary.overtime_minutes
+                  ? <><DurationDisplay minutes={summary.overtime_minutes} /> overtime</>
+                  : summary.target_minutes === null
+                    ? "Set a weekly target to track your progress"
+                    : <><DurationDisplay minutes={summary.remaining_minutes} /> remaining</>
               : " "}
           </span>
         </div>
@@ -195,14 +293,14 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
               {days.map((date) => {
                 const shifts = shiftsByDate.get(date) ?? [];
                 return shifts.length ? shifts.map((shift) => (
-                  <tr key={shift.id}>
+                  <tr key={shift.shift.id}>
                     <td>{formatDate(date, { weekday: "short", day: "numeric" })}</td>
                     <td className="shift-time">
-                      {shift.startTime && shift.endTime
-                        ? `${shift.startTime} - ${shift.endTime}`
+                      {shift.shift.start_at && shift.shift.end_at
+                        ? `${londonTime(new Date(shift.shift.start_at))} - ${londonTime(new Date(shift.shift.end_at))}`
                         : "Duration entry"}
                     </td>
-                    <td><DurationDisplay minutes={shift.netMinutes} /></td>
+                    <td><DurationDisplay minutes={shift.minutes} /></td>
                     <td><span className="status-pill">✓ Logged</span></td>
                     <td>
                       <Link
@@ -266,7 +364,7 @@ function SummaryCard({ className, icon, label, value }: {
   className: string;
   icon: string;
   label: string;
-  value: React.ReactNode;
+  value: import("react").ReactNode;
 }) {
   return (
     <div className={`summary-card ${className}`}>

@@ -1,4 +1,10 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
+import { useAuth } from "@/components/auth/auth-provider";
+import { logout } from "@/lib/api";
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -40,6 +46,29 @@ function NavigationItem({ href, label, icon, active = false }: {
 }
 
 export function AppShell({ children, active }: AppShellProps) {
+  const router = useRouter();
+  const { user, loading, setUser } = useAuth();
+
+  useEffect(() => {
+    if (!loading && !user) router.replace("/login");
+  }, [loading, router, user]);
+
+  async function handleLogout() {
+    try {
+      await logout();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to confirm sign out.";
+      router.replace(`/login?notice=${encodeURIComponent(message)}`);
+    } finally {
+      setUser(null);
+      if (window.location.pathname !== "/login") router.replace("/login");
+    }
+  }
+
+  if (loading || !user) {
+    return <main className="auth-loading" aria-live="polite">Loading your Shiftr account…</main>;
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -66,10 +95,10 @@ export function AppShell({ children, active }: AppShellProps) {
             <span className="nav-icon" aria-hidden="true">⚙</span>
             Settings
           </span>
-          <span className="nav-link" aria-disabled="true" title="Sign-in will be available soon">
+          <button className="nav-link nav-button" type="button" onClick={handleLogout}>
             <span className="nav-icon" aria-hidden="true">↪</span>
             Log out
-          </span>
+          </button>
         </div>
       </aside>
       <main className="main-content">{children}</main>
