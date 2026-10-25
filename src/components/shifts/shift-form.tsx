@@ -80,7 +80,8 @@ export function ShiftForm({ initialDate }: { initialDate?: string }) {
           breaks,
         });
       }
-      router.replace(`/dashboard?weekStart=${startOfWeekForDateKey(date)}`);
+      const weekToShow = mode === "start-end" ? endDate : date;
+      router.replace(`/dashboard?weekStart=${startOfWeekForDateKey(weekToShow)}`);
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {

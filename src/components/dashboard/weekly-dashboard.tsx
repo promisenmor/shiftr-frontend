@@ -2,14 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { getWeeklySummary, setWeeklyTarget } from "@/lib/api";
+import { getShifts, getWeeklySummary, setWeeklyTarget } from "@/lib/api";
 import {
   addDays,
+  calendarGridRange,
   currentWeekStart,
   formatDate,
   formatWeekRange,
   londonDateKey,
+  londonDateKeysForInterval,
   londonTime,
+  startOfWeekForDateKey,
+  todayInUK,
 } from "@/lib/dates";
 import { useAuth } from "@/components/auth/auth-provider";
 import { ValidationFeedback } from "@/components/forms/validation-feedback";
@@ -44,15 +48,23 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
   const [weekStart, setWeekStart] = useState(
     () => initialWeekStart ?? currentWeekStart(),
   );
+  const [selectedDate, setSelectedDate] = useState(
+    () => initialWeekStart ?? todayInUK(),
+  );
   const [summary, setSummary] = useState<WeeklySummary | null>(null);
+  const [calendarShifts, setCalendarShifts] = useState<Shift[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [calendarLoading, setCalendarLoading] = useState(true);
   const [retry, setRetry] = useState(0);
+  const [calendarRetry, setCalendarRetry] = useState(0);
   const [editingTarget, setEditingTarget] = useState(false);
   const [targetHours, setTargetHours] = useState("19");
   const [targetMinutes, setTargetMinutes] = useState("0");
   const [savingTarget, setSavingTarget] = useState(false);
   const [targetError, setTargetError] = useState<string | null>(null);
+  const calendarRange = useMemo(() => calendarGridRange(weekStart), [weekStart]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -73,6 +85,25 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
     return () => controller.abort();
   }, [weekStart, retry]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void getShifts(calendarRange.start, calendarRange.end, controller.signal)
+      .then((result) => {
+        setCalendarShifts(result);
+        setCalendarError(null);
+      })
+      .catch((caught: unknown) => {
+        if (!controller.signal.aborted) {
+          setCalendarShifts([]);
+          setCalendarError(getErrorMessage(caught));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCalendarLoading(false);
+      });
+    return () => controller.abort();
+  }, [calendarRange, calendarRetry]);
+
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, index) => addDays(weekStart, index)),
     [weekStart],
@@ -92,13 +123,41 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
     }
     return grouped;
   }, [summary, weekStart]);
+  const calendarShiftsByDate = useMemo(() => {
+    const grouped = new Map<string, { shift: Shift; minutes: number }[]>();
+    for (const shift of calendarShifts) {
+      const dates = shift.entry_mode === "timed" && shift.start_at && shift.end_at
+        ? londonDateKeysForInterval(shift.start_at, shift.end_at)
+        : shift.shift_date
+          ? [shift.shift_date]
+          : [];
+      if (dates.length === 0) continue;
+      const allocation = shift.weekly_allocations.find(
+        (item) => item.week_start === weekStart,
+      );
+      for (const date of dates) {
+        grouped.set(date, [
+          ...(grouped.get(date) ?? []),
+          { shift, minutes: allocation?.minutes ?? shift.net_minutes },
+        ]);
+      }
+    }
+    return grouped;
+  }, [calendarShifts, weekStart]);
 
   const progress = summary?.progress_percent ?? 0;
   const todayWeekStart = currentWeekStart();
-  const selectWeek = (nextWeekStart: string) => {
+  const selectWeek = (nextWeekStart: string, dateToSelect = nextWeekStart) => {
+    const nextRange = calendarGridRange(nextWeekStart);
+    if (nextRange.start !== calendarRange.start) {
+      setCalendarLoading(true);
+      setCalendarError(null);
+      setCalendarShifts([]);
+    }
     setLoading(true);
     setError(null);
     setSummary(null);
+    setSelectedDate(dateToSelect);
     setWeekStart(nextWeekStart);
   };
 
@@ -295,7 +354,7 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
               <button
                 className="secondary-button"
                 type="button"
-                onClick={() => selectWeek(todayWeekStart)}
+                onClick={() => selectWeek(todayWeekStart, todayInUK())}
               >
                 This week
               </button>
@@ -370,7 +429,23 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
                 <p>Selected week</p>
               </div>
             </div>
-            <MiniCalendar weekStart={weekStart} days={days} />
+            <MiniCalendar
+              weekStart={weekStart}
+              shiftsByDate={calendarShiftsByDate}
+              selectedDate={selectedDate}
+              loading={calendarLoading}
+              error={calendarError}
+              onRetry={() => {
+                setCalendarLoading(true);
+                setCalendarRetry((current) => current + 1);
+              }}
+              onSelectDate={(date) => {
+                setSelectedDate(date);
+                if (!days.includes(date)) {
+                  selectWeek(startOfWeekForDateKey(date), date);
+                }
+              }}
+            />
           </section>
           <section className="tip-card">
             <div className="tip-title"><span aria-hidden="true">✦</span> Quick tip</div>
@@ -399,13 +474,26 @@ function SummaryCard({ className, icon, label, value }: {
   );
 }
 
-function MiniCalendar({ weekStart, days }: { weekStart: string; days: string[] }) {
+function MiniCalendar({
+  weekStart,
+  shiftsByDate,
+  selectedDate,
+  loading,
+  error,
+  onRetry,
+  onSelectDate,
+}: {
+  weekStart: string;
+  shiftsByDate: Map<string, { shift: Shift; minutes: number }[]>;
+  selectedDate: string;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onSelectDate: (date: string) => void;
+}) {
   const [year, month] = weekStart.split("-").map(Number);
-  const firstDay = new Date(Date.UTC(year, month - 1, 1));
-  const offset = (firstDay.getUTCDay() + 6) % 7;
-  const calendarStart = addDays(`${year}-${String(month).padStart(2, "0")}-01`, -offset);
-  const selectedDays = new Set(days);
-  const calendarDays = Array.from({ length: 35 }, (_, index) => addDays(calendarStart, index));
+  const { start: calendarStart } = calendarGridRange(weekStart);
+  const calendarDays = Array.from({ length: 42 }, (_, index) => addDays(calendarStart, index));
   const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
 
   return (
@@ -415,21 +503,62 @@ function MiniCalendar({ weekStart, days }: { weekStart: string; days: string[] }
           <span key={day}>{day}</span>
         ))}
       </div>
+      {error && (
+        <div className="calendar-markers-error">
+          <ValidationFeedback type="error" message={`Couldn't load logged days. ${error}`} />
+          <button className="secondary-button" type="button" onClick={onRetry}>
+            Try again
+          </button>
+        </div>
+      )}
+      {loading && <p className="calendar-markers-loading" role="status">Loading logged days…</p>}
       <div className="calendar-days">
         {calendarDays.map((date) => (
-          <span
+          <button
             className={[
               "calendar-day",
               date.startsWith(monthPrefix) ? "" : "outside",
-              selectedDays.has(date) ? "selected" : "",
+              shiftsByDate.has(date) ? "has-shifts" : "",
+              selectedDate === date ? "selected" : "",
             ].filter(Boolean).join(" ")}
+            type="button"
             key={date}
-            aria-current={selectedDays.has(date) ? "date" : undefined}
+            aria-label={`${formatDate(date, {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+            })}${shiftsByDate.has(date) ? ", shifts logged" : ""}`}
+            aria-pressed={selectedDate === date}
+            aria-current={date === todayInUK() ? "date" : undefined}
+            onClick={() => onSelectDate(date)}
           >
             {formatDate(date, { day: "numeric" })}
-          </span>
+          </button>
         ))}
       </div>
+      <section className="mini-calendar-details" aria-live="polite">
+        <h3>{formatDate(selectedDate, {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        })}</h3>
+        {(shiftsByDate.get(selectedDate) ?? []).length > 0 ? (
+          <ul>
+            {(shiftsByDate.get(selectedDate) ?? []).map(({ shift, minutes }) => (
+              <li key={shift.id}>
+                <span>
+                  {shift.start_at && shift.end_at
+                    ? `${londonTime(new Date(shift.start_at))} - ${londonTime(new Date(shift.end_at))}`
+                    : "Duration entry"}
+                </span>
+                <strong><DurationDisplay minutes={minutes} /></strong>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No shifts logged</p>
+        )}
+      </section>
     </div>
   );
 }
