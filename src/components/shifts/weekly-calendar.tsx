@@ -12,6 +12,7 @@ import {
   formatWeekRange,
   londonDateKey,
   londonTime,
+  startOfWeekForDateKey,
   todayInUK,
 } from "@/lib/dates";
 import type { Shift, WeeklySummary } from "@/types";
@@ -27,6 +28,9 @@ export function WeeklyCalendar({ initialWeekStart }: { initialWeekStart?: string
     () => initialWeekStart ?? currentWeekStart(),
   );
   const [summary, setSummary] = useState<WeeklySummary | null>(null);
+  const [selectedDate, setSelectedDate] = useState(
+    () => initialWeekStart ?? todayInUK(),
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [retry, setRetry] = useState(0);
@@ -55,7 +59,7 @@ export function WeeklyCalendar({ initialWeekStart }: { initialWeekStart?: string
     [weekStart],
   );
   const shiftsByDate = useMemo(() => {
-    const grouped = new Map<string, Shift[]>();
+    const grouped = new Map<string, { shift: Shift; minutes: number }[]>();
     for (const shift of summary?.shifts ?? []) {
       const allocation = shift.weekly_allocations.find(
         (item) => item.week_start === weekStart,
@@ -67,7 +71,10 @@ export function WeeklyCalendar({ initialWeekStart }: { initialWeekStart?: string
         : shiftDate > addDays(weekStart, 6)
           ? addDays(weekStart, 6)
           : shiftDate;
-      grouped.set(date, [...(grouped.get(date) ?? []), shift]);
+      grouped.set(date, [
+        ...(grouped.get(date) ?? []),
+        { shift, minutes: allocation.minutes },
+      ]);
     }
     return grouped;
   }, [summary, weekStart]);
@@ -76,8 +83,21 @@ export function WeeklyCalendar({ initialWeekStart }: { initialWeekStart?: string
     setError(null);
     setSummary(null);
     setLoading(true);
+    setSelectedDate(nextWeek);
     setWeekStart(nextWeek);
   };
+
+  const selectDate = (date: string) => {
+    setSelectedDate(date);
+    if (!days.includes(date)) {
+      setError(null);
+      setSummary(null);
+      setLoading(true);
+      setWeekStart(startOfWeekForDateKey(date));
+    }
+  };
+
+  const selectedShifts = shiftsByDate.get(selectedDate) ?? [];
 
   return (
     <>
@@ -145,15 +165,25 @@ export function WeeklyCalendar({ initialWeekStart }: { initialWeekStart?: string
           const isToday = date === todayInUK();
           return (
             <article
-              className={`calendar-day-panel${isToday ? " today" : ""}`}
+              className={[
+                "calendar-day-panel",
+                isToday ? "today" : "",
+                shifts.length > 0 ? "has-shifts" : "",
+                selectedDate === date ? "selected" : "",
+              ].filter(Boolean).join(" ")}
               key={date}
             >
-              <header className="calendar-day-heading">
+              <button
+                className="calendar-day-heading"
+                type="button"
+                aria-pressed={selectedDate === date}
+                onClick={() => selectDate(date)}
+              >
                 <strong>{formatDate(date, { weekday: "short" })}</strong>
                 <span>{formatDate(date, { day: "numeric", month: "short" })}</span>
-              </header>
+              </button>
               <div className="calendar-day-shifts">
-                {shifts.map((shift) => (
+                {shifts.map(({ shift, minutes }) => (
                   <div className="calendar-shift" key={shift.id}>
                     <div className="calendar-shift-time">
                       {shift.start_at && shift.end_at
@@ -161,7 +191,7 @@ export function WeeklyCalendar({ initialWeekStart }: { initialWeekStart?: string
                         : "Duration entry"}
                     </div>
                     <div className="calendar-shift-duration">
-                      <DurationDisplay minutes={shift.net_minutes} /> worked
+                      <DurationDisplay minutes={minutes} /> worked
                     </div>
                   </div>
                 ))}
@@ -182,6 +212,46 @@ export function WeeklyCalendar({ initialWeekStart }: { initialWeekStart?: string
           );
         })}
       </section>
+
+      {summary && (
+        <section className="calendar-date-details panel" aria-live="polite">
+          <div className="panel-heading">
+            <div>
+              <h2>{formatDate(selectedDate, {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+              })}</h2>
+              <p>{selectedShifts.length
+                ? `${selectedShifts.length} ${selectedShifts.length === 1 ? "shift" : "shifts"} logged`
+                : "No shifts logged"}</p>
+            </div>
+            <Link
+              className="secondary-button"
+              href={`/log-shift?date=${selectedDate}`}
+            >
+              Add shift
+            </Link>
+          </div>
+          {selectedShifts.map(({ shift, minutes }) => (
+            <div className="calendar-date-shift" key={shift.id}>
+              <div>
+                <strong>
+                  {shift.start_at && shift.end_at
+                    ? `${londonTime(new Date(shift.start_at))} - ${londonTime(new Date(shift.end_at))}`
+                    : "Duration entry"}
+                </strong>
+                <span>
+                  {shift.entry_mode === "timed"
+                    ? `${shift.gross_minutes}m gross · ${shift.unpaid_break_minutes}m unpaid break`
+                    : "Total duration"}
+                </span>
+              </div>
+              <strong><DurationDisplay minutes={minutes} /></strong>
+            </div>
+          ))}
+        </section>
+      )}
 
       {summary && (
         <section className="calendar-summary" aria-label="Weekly total">

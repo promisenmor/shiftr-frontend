@@ -28,6 +28,20 @@ export function londonTime(value: Date): string {
   return `${parts.hour}:${parts.minute}`;
 }
 
+export function londonDateKeysForInterval(startAt: string, endAt: string): string[] {
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  const firstDate = londonDateKey(start);
+  const endDate = londonDateKey(end);
+  const lastDate = londonTime(end) === "00:00" ? addDays(endDate, -1) : endDate;
+  const dates: string[] = [];
+
+  for (let date = firstDate; date <= lastDate; date = addDays(date, 1)) {
+    dates.push(date);
+  }
+  return dates;
+}
+
 export function londonDateTimeCandidates(date: string, time: string): string[] {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(`${date}T${time}`);
   if (!match) return [];
@@ -109,6 +123,14 @@ export function addDays(dateKey: string, days: number): string {
   const [year, month, day] = dateKey.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day + days));
   return date.toISOString().slice(0, 10);
+}
+
+export function calendarGridRange(dateKey: string): { start: string; end: string } {
+  const [year, month] = dateKey.split("-").map(Number);
+  const firstDay = new Date(Date.UTC(year, month - 1, 1));
+  const mondayOffset = (firstDay.getUTCDay() + 6) % 7;
+  const start = addDays(`${year}-${String(month).padStart(2, "0")}-01`, -mondayOffset);
+  return { start, end: addDays(start, 41) };
 }
 
 export function formatDate(dateKey: string, options: Intl.DateTimeFormatOptions): string {
