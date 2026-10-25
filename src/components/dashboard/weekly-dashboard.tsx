@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { getWeeklySummary, setWeeklyTarget } from "@/lib/api";
 import {
   addDays,
@@ -20,8 +20,27 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "An unexpected error occurred.";
 }
 
+function getUKGreeting(): string {
+  const hour = Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    hour: "numeric",
+    hourCycle: "h23",
+  }).format(new Date()));
+  return hour >= 18 || hour < 5 ? "Good evening" : "Good morning";
+}
+
+function subscribeToClock(onChange: () => void) {
+  const interval = window.setInterval(onChange, 60_000);
+  return () => window.clearInterval(interval);
+}
+
 export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: string }) {
   const { user } = useAuth();
+  const greeting = useSyncExternalStore(
+    subscribeToClock,
+    getUKGreeting,
+    () => "Good morning",
+  );
   const [weekStart, setWeekStart] = useState(
     () => initialWeekStart ?? currentWeekStart(),
   );
@@ -108,7 +127,7 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
     <>
       <header className="page-heading">
         <div>
-          <h1>Good morning, {user?.display_name || user?.email.split("@")[0] || "there"} 👋</h1>
+          <h1>{greeting}, {user?.display_name || user?.email.split("@")[0] || "there"} 👋</h1>
           <p>Here&apos;s your shift overview for this week.</p>
         </div>
         <div className="user-chip">
@@ -210,7 +229,10 @@ export function WeeklyDashboard({ initialWeekStart }: { initialWeekStart?: strin
           aria-valuemax={100}
           aria-valuenow={Math.round(progress)}
         >
-          <div className="progress-fill" style={{ width: `${progress}%` }} />
+          <div
+            className={`progress-fill${progress >= 80 ? " danger" : ""}`}
+            style={{ width: `${progress}%` }}
+          />
         </div>
         <div className="progress-caption">
           <strong>{summary ? `${progress.toFixed(1)}% complete` : "Weekly progress"}</strong>

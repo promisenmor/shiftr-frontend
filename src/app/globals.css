@@ -311,6 +311,10 @@ a {
   transition: width 250ms ease;
 }
 
+.progress-fill.danger {
+  background: linear-gradient(90deg, #e34c4c, #c92f3b);
+}
+
 .progress-caption {
   display: flex;
   justify-content: space-between;
