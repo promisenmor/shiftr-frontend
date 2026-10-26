@@ -166,6 +166,17 @@ export async function login(email: string, password: string): Promise<AuthTokens
   return result;
 }
 
+export async function loginWithGoogle(credential: string): Promise<AuthTokens> {
+  const result = await request<unknown>(
+    "/auth/google/",
+    { method: "POST", body: JSON.stringify({ credential }) },
+    false,
+  );
+  if (!isAuthTokens(result)) throw new Error("The backend returned an invalid Google sign-in response.");
+  setSession(result);
+  return result;
+}
+
 export async function register(
   email: string,
   password: string,

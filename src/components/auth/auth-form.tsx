@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import Script from "next/script";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ValidationFeedback } from "@/components/forms/validation-feedback";
-import { login, register } from "@/lib/api";
+import { login, loginWithGoogle, register } from "@/lib/api";
 import { useAuth } from "@/components/auth/auth-provider";
+
+const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
 export function AuthForm({
   mode,
@@ -21,7 +24,53 @@ export function AuthForm({
   const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [googleLoaded, setGoogleLoaded] = useState(false);
+  const googleButton = useRef<HTMLDivElement>(null);
+  const googleSignInInProgress = useRef(false);
   const isRegister = mode === "register";
+
+  const handleGoogleCredential = useCallback(async (credential: string) => {
+    if (googleSignInInProgress.current) return;
+    googleSignInInProgress.current = true;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const session = await loginWithGoogle(credential);
+      setUser(session.user);
+      router.replace("/dashboard");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to sign in with Google.");
+    } finally {
+      googleSignInInProgress.current = false;
+      setSubmitting(false);
+    }
+  }, [router, setUser]);
+
+  useEffect(() => {
+    const container = googleButton.current;
+    const googleIdentity = window.google?.accounts.id;
+    if (!googleLoaded || !googleClientId || !container || !googleIdentity) return;
+
+    container.replaceChildren();
+    googleIdentity.initialize({
+      client_id: googleClientId,
+      callback: (response) => {
+        if (!response.credential) {
+          setError("Google did not return a sign-in credential. Please try again.");
+          return;
+        }
+        void handleGoogleCredential(response.credential);
+      },
+    });
+    googleIdentity.renderButton(container, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: isRegister ? "signup_with" : "signin_with",
+      shape: "rectangular",
+      width: Math.min(container.clientWidth || 350, 350),
+    });
+  }, [googleLoaded, handleGoogleCredential, isRegister]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,6 +102,28 @@ export function AuthForm({
           : "Sign in to see your weekly shifts and hours."}
       </p>
       {notice && <ValidationFeedback type="info" message={notice} />}
+      {googleClientId && (
+        <>
+          <Script
+            src="https://accounts.google.com/gsi/client"
+            strategy="afterInteractive"
+            onReady={() => setGoogleLoaded(true)}
+            onError={() => setError("Google sign-in could not be loaded. Please try again later.")}
+          />
+          <div className="google-sign-in">
+            <div
+              ref={googleButton}
+              aria-disabled={submitting}
+              style={{
+                opacity: submitting ? 0.6 : 1,
+                pointerEvents: submitting ? "none" : "auto",
+              }}
+            />
+          </div>
+          <div className="auth-divider"><span>or continue with email</span></div>
+        </>
+      )}
+      {error && <ValidationFeedback type="error" message={error} />}
       <form className="form-fields" onSubmit={submit}>
         {isRegister && (
           <div className="field">
@@ -89,7 +160,6 @@ export function AuthForm({
             onChange={(event) => setPassword(event.target.value)}
           />
         </div>
-        {error && <ValidationFeedback type="error" message={error} />}
         <button className="primary-button full-width" type="submit" disabled={submitting}>
           {submitting ? "Please wait…" : isRegister ? "Create account" : "Sign in"}
         </button>

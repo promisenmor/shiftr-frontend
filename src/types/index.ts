@@ -65,3 +65,32 @@ export type DurationShiftRequest = {
 };
 
 export type CreateShiftRequest = TimedShiftRequest | DurationShiftRequest;
+
+type GoogleCredentialResponse = {
+  credential: string;
+};
+
+type GoogleButtonOptions = {
+  type: "standard";
+  theme: "outline";
+  size: "large";
+  text: "signin_with" | "signup_with";
+  shape: "rectangular";
+  width: number;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (options: {
+            client_id: string;
+            callback: (response: GoogleCredentialResponse) => void;
+          }) => void;
+          renderButton: (parent: HTMLElement, options: GoogleButtonOptions) => void;
+        };
+      };
+    };
+  }
+}
