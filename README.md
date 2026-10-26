@@ -12,6 +12,11 @@ Configure the frontend API proxy by copying `.env.example` to `.env.local` and
 setting `SHIFTR_API_URL` to the backend origin (the local default is
 `http://127.0.0.1:8000`). The Next.js proxy forwards `/backend-api/*` to the
 backend `/api/*` routes, so browser requests stay same-origin.
+For Google sign-in, set `NEXT_PUBLIC_GOOGLE_CLIENT_ID` to the same Google
+OAuth Web client ID configured as `GOOGLE_OAUTH_CLIENT_ID` in the backend.
+Add the frontend origin (for example, `http://localhost:3000`) to that
+OAuth client's authorized JavaScript origins. Restart the frontend after
+changing `.env.local`.
 
 Then run the frontend:
 
@@ -19,17 +24,17 @@ Then run the frontend:
 npm run dev
 ```
 
-Create an account at `/register`, then log in at `/login`. Authentication uses
-the backend's short-lived JWT access token and rotating refresh token. Tokens
-are held in tab-scoped session storage and are not persisted across browser
-sessions.
+Create an account at `/register`, then log in at `/login`, or use Google
+Identity Services on either page. Authentication uses the backend's short-lived
+JWT access token and rotating refresh token. Tokens are held in tab-scoped
+session storage and are not persisted across browser sessions.
 
 ## Backend integration
 
 The frontend uses the backend API documented at `/api/docs/`:
 
-- `POST /api/auth/register/`, `/api/auth/login/`, `/api/auth/refresh/`, and
-  `/api/auth/logout/`
+- `POST /api/auth/register/`, `/api/auth/login/`, `/api/auth/google/`,
+  `/api/auth/refresh/`, and `/api/auth/logout/`
 - `GET /api/profile/`
 - `GET, POST /api/shifts/`
 - `PUT /api/weekly-targets/{week_start}/`
